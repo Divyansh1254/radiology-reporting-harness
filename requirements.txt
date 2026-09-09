@@ -1,0 +1,9 @@
+# core pipeline + local metric
+# (res_score.py, exemplars.py, postprocess.py, run_cv.py use only the stdlib)
+
+# generation backend — the pipeline is provider-agnostic; the Kaggle notebook swaps this
+# for a local 4-bit model (transformers + bitsandbytes) on a free GPU
+anthropic>=1.0
+
+# demo
+streamlit>=1.30
