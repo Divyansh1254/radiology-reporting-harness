@@ -1,0 +1,367 @@
+<title>Radiology Reporting Harness</title>
+<meta name="description" content="A metric-aware pipeline that merges a radiologist's dictation into a report template, with a from-scratch reimplementation of the edit-distance scorer." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" />
+
+<style>
+:root{
+  --paper:#eef1f3; --surface:#ffffff; --surface-2:#f6f8f9; --line:#d3dade;
+  --ink:#141a1f; --muted:#5a6a74; --faint:#8595a0;
+  --accent:#0d6e78; --accent-ink:#0a545c;
+  --good:#1c874b; --good-bg:#dff1e4;
+  --miss:#c02f3a; --miss-bg:#fbe3e4;
+  --drift:#a86400; --drift-bg:#f8ecd6;
+  --shadow:0 1px 2px rgba(20,26,31,.05),0 8px 24px -12px rgba(20,26,31,.18);
+  --radius:10px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0e141a; --surface:#161f27; --surface-2:#1b262f; --line:#2b3a45;
+    --ink:#e7edf1; --muted:#9fb0bb; --faint:#73858f;
+    --accent:#3fb6c0; --accent-ink:#6fd0d8;
+    --good:#57c98a; --good-bg:#183327;
+    --miss:#ef7b84; --miss-bg:#3a1f22;
+    --drift:#e0a94a; --drift-bg:#372a15;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px -14px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0e141a; --surface:#161f27; --surface-2:#1b262f; --line:#2b3a45;
+  --ink:#e7edf1; --muted:#9fb0bb; --faint:#73858f;
+  --accent:#3fb6c0; --accent-ink:#6fd0d8;
+  --good:#57c98a; --good-bg:#183327;
+  --miss:#ef7b84; --miss-bg:#3a1f22;
+  --drift:#e0a94a; --drift-bg:#372a15;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px -14px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:940px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:"Archivo","IBM Plex Sans",sans-serif;line-height:1.15;text-wrap:balance;margin:0}
+h1{font-weight:800;font-size:clamp(2rem,5vw,3rem);letter-spacing:-.02em}
+h2{font-weight:700;font-size:1.5rem;letter-spacing:-.01em;margin-bottom:.6rem}
+h3{font-weight:600;font-size:.85rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+p{margin:.6rem 0;max-width:66ch}
+a{color:var(--accent-ink);text-underline-offset:2px}
+code,.mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+mark{background:none;color:inherit}
+
+/* ---- header ---- */
+header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--surface),var(--paper))}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.75rem;letter-spacing:.18em;text-transform:uppercase;color:var(--accent-ink)}
+header .wrap{padding-top:56px;padding-bottom:44px}
+.lede{font-size:1.12rem;color:var(--muted);max-width:60ch;margin-top:.8rem}
+.stats{display:flex;flex-wrap:wrap;gap:14px;margin-top:28px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;min-width:132px}
+.stat .n{font-family:"Archivo",sans-serif;font-weight:800;font-size:1.5rem;font-variant-numeric:tabular-nums}
+.stat .n.down{color:var(--good)}
+.stat .k{font-size:.76rem;color:var(--faint);text-transform:uppercase;letter-spacing:.06em}
+
+section{padding:52px 0;border-bottom:1px solid var(--line)}
+section:last-of-type{border-bottom:0}
+.sub{color:var(--muted);max-width:64ch;margin-top:-.2rem}
+
+/* ---- steps ---- */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+.step .idx{font-family:"IBM Plex Mono",monospace;color:var(--accent-ink);font-size:.8rem}
+.step b{display:block;margin:.35rem 0 .3rem;font-family:"Archivo",sans-serif}
+.step p{font-size:.92rem;color:var(--muted);margin:0}
+
+/* ---- explorer ---- */
+.picker{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0}
+.chip{font:inherit;font-size:.82rem;cursor:pointer;background:var(--surface);color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:6px 13px;transition:all .15s}
+.chip:hover{border-color:var(--accent)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip .m{font-family:"IBM Plex Mono",monospace;opacity:.7;margin-right:6px}
+
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow)}
+.panel h3{margin-bottom:10px}
+pre.doc{font-family:"IBM Plex Mono",monospace;font-size:.8rem;line-height:1.5;white-space:pre-wrap;
+  margin:0;color:var(--ink);overflow-x:auto}
+.dictation{background:var(--surface-2);border-left:3px solid var(--accent);border-radius:4px;
+  padding:10px 12px;font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--ink)}
+.meta{display:flex;gap:10px;flex-wrap:wrap;font-size:.78rem;color:var(--faint);margin-bottom:12px}
+.meta b{color:var(--muted);font-weight:600}
+
+.readout{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0 4px;align-items:stretch}
+.gauge{flex:1;min-width:260px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.gauge .row{display:flex;justify-content:space-between;font-size:.78rem;color:var(--faint);margin-bottom:6px}
+.track{height:9px;border-radius:5px;background:var(--surface-2);overflow:hidden;position:relative}
+.track .fill{height:100%;background:var(--accent);border-radius:5px;transition:width .5s ease}
+.track .b0{position:absolute;top:-3px;width:2px;height:15px;background:var(--faint)}
+.fi{display:flex;gap:8px;margin-top:10px;font-family:"IBM Plex Mono",monospace;font-size:.76rem;color:var(--muted)}
+.fi span{background:var(--surface-2);border-radius:4px;padding:3px 8px}
+
+.diffbox{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-top:14px}
+.diff{font-family:"IBM Plex Mono",monospace;font-size:.8rem;line-height:1.7;white-space:pre-wrap}
+.diff .ok{background:var(--good-bg);color:var(--good);border-radius:3px;padding:0 2px}
+.diff .miss{background:var(--miss-bg);color:var(--miss);border-radius:3px;padding:0 2px;text-decoration:line-through}
+.legend{display:flex;gap:16px;font-size:.74rem;color:var(--faint);margin-top:10px}
+.legend i{font-style:normal;border-radius:3px;padding:0 5px}
+.legend .ok{background:var(--good-bg);color:var(--good)}
+.legend .miss{background:var(--miss-bg);color:var(--miss)}
+
+table.fields{width:100%;border-collapse:collapse;margin-top:14px;font-size:.82rem}
+table.fields th{text-align:left;font-weight:600;color:var(--muted);font-size:.72rem;text-transform:uppercase;
+  letter-spacing:.05em;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.fields td{padding:7px 8px;border-bottom:1px solid var(--line);font-family:"IBM Plex Mono",monospace}
+table.fields td.lbl{font-family:"IBM Plex Sans",sans-serif}
+.wpill{font-size:.72rem;padding:1px 7px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
+.wpill.w3{background:var(--drift-bg);color:var(--drift)}
+.score-cell{font-variant-numeric:tabular-nums}
+
+/* ---- metric ---- */
+.formula{font-family:"IBM Plex Mono",monospace;font-size:1.05rem;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--radius);padding:14px 18px;display:inline-block;margin:8px 0}
+.formula b{color:var(--accent-ink)}
+.wtable{width:100%;border-collapse:collapse;margin-top:16px;font-size:.88rem}
+.wtable th,.wtable td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+.wtable th{color:var(--muted);font-size:.74rem;text-transform:uppercase;letter-spacing:.05em}
+.wtable td:first-child{font-family:"IBM Plex Mono",monospace;font-weight:600}
+.rules{margin-top:18px;padding-left:0;list-style:none}
+.rules li{padding:8px 0 8px 26px;position:relative;color:var(--muted);font-size:.94rem;border-top:1px solid var(--line)}
+.rules li::before{content:"→";position:absolute;left:0;color:var(--accent);font-family:"IBM Plex Mono",monospace}
+
+/* ---- results ---- */
+.bars{display:flex;flex-direction:column;gap:12px;margin-top:20px}
+.bar{display:grid;grid-template-columns:190px 1fr 56px;align-items:center;gap:12px}
+.bar .name{font-size:.84rem;color:var(--muted)}
+.bar .val{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;text-align:right;font-size:.86rem}
+.bar .barfill{height:22px;border-radius:5px;background:var(--surface-2);overflow:hidden}
+.bar .barfill i{display:block;height:100%;background:var(--accent);border-radius:5px;transition:width .6s ease}
+.bar.base .barfill i{background:var(--faint)}
+.bar.best .barfill i{background:var(--good)}
+
+footer{padding:40px 0 64px;color:var(--faint);font-size:.85rem}
+footer a{color:var(--muted)}
+.note{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;font-size:.85rem;color:var(--muted);margin-top:14px}
+
+@media (max-width:720px){
+  .panels{grid-template-columns:1fr}
+  .steps{grid-template-columns:1fr}
+  .bar{grid-template-columns:120px 1fr 48px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">Skills challenge · text-to-text · zero-budget</div>
+    <h1>Radiology Reporting Harness</h1>
+    <p class="lede">A metric-aware pipeline that merges a radiologist's telegraphic dictation
+      into a normal report template — plus a from-scratch reimplementation of the edit-distance
+      metric it's scored on.</p>
+    <div class="stats">
+      <div class="stat"><div class="n">0.63</div><div class="k">emit template (baseline)</div></div>
+      <div class="stat"><div class="n down">0.33</div><div class="k">local 5-fold CV</div></div>
+      <div class="stat"><div class="n down">0.41</div><div class="k">public leaderboard</div></div>
+      <div class="stat"><div class="n">$0</div><div class="k">free Kaggle T4 GPU</div></div>
+    </div>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Every decision was measured against a local reimplementation of the scorer.
+      The pipeline is shaped around what that metric actually rewards.</p>
+    <div class="steps">
+      <div class="step">
+        <span class="idx">retrieval</span>
+        <b>Nearest templates</b>
+        <p>k training cases ranked by template similarity — within a modality they're
+          near-duplicates, so a template match shows the model exactly how each field of
+          <em>this</em> template transforms.</p>
+      </div>
+      <div class="step">
+        <span class="idx">generation</span>
+        <b>Few-shot draft</b>
+        <p>An instruction model (Qwen2.5-14B, 4-bit, greedy) gets the house-style guide, the
+          retrieved examples, and this case's template + dictation, and writes a draft report.</p>
+      </div>
+      <div class="step">
+        <span class="idx">post-process</span>
+        <b>Skeleton snap</b>
+        <p>The draft is forced onto the template's exact skeleton: every label reproduced
+          verbatim, UPPERCASE, in order; unfilled fields fall back to the template sentence.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="explorer">
+  <div class="wrap">
+    <h2>Case explorer</h2>
+    <p class="sub">Ten synthetic cases in the challenge's format. Pick one to see the inputs,
+      the pipeline's output, and the live RES score against the reference.</p>
+    <div class="picker" id="picker" role="group" aria-label="Choose a case"></div>
+
+    <div class="meta" id="meta"></div>
+    <div class="panels">
+      <div class="panel">
+        <h3>Template + dictation</h3>
+        <pre class="doc" id="template"></pre>
+        <div class="dictation" id="dictation" style="margin-top:12px"></div>
+      </div>
+      <div class="panel">
+        <h3>Pipeline output</h3>
+        <pre class="doc" id="prediction"></pre>
+      </div>
+    </div>
+
+    <div class="readout">
+      <div class="gauge">
+        <div class="row"><span>RES · lower is better</span><span id="resval" class="mono"></span></div>
+        <div class="track"><div class="fill" id="resfill"></div><div class="b0" id="b0mark" title="baseline"></div></div>
+        <div class="fi"><span id="fval"></span><span id="ival"></span><span id="bval"></span></div>
+      </div>
+    </div>
+
+    <div class="diffbox">
+      <h3>Reference · struck-through = the pipeline missed it</h3>
+      <div class="diff" id="diff"></div>
+      <div class="legend">
+        <span><i class="ok">matched</i> pipeline reproduced this</span>
+        <span><i class="miss">missed</i> in the reference, not in the output</span>
+      </div>
+    </div>
+
+    <table class="fields">
+      <thead><tr><th>FINDINGS field</th><th>weight</th><th>word-edit score</th></tr></thead>
+      <tbody id="fieldrows"></tbody>
+    </table>
+  </div>
+</section>
+
+<section id="metric">
+  <div class="wrap">
+    <h2>The RES metric</h2>
+    <p class="sub"><code>src/res_score.py</code> reimplements the Radiology Edit Score from the
+      public spec. Predicting the reference scores exactly 0.0.</p>
+    <div class="formula">RES = <b>0.65</b>·F<sub>findings</sub> + <b>0.35</b>·I<sub>impression</sub></div>
+    <p>A field-aware, weighted word-level edit distance after normalization (lowercasing, unit
+      spelling, list markers removed, <code>5mm</code> → <code>5 mm</code>). FINDINGS aligns
+      sections <em>by label</em>.</p>
+    <table class="wtable">
+      <thead><tr><th>Token class</th><th>Weight</th><th>Examples</th></tr></thead>
+      <tbody>
+        <tr><td>4.0</td><td>clinically critical</td><td>negation, laterality, severity, acuity, numbers, mm, cm</td></tr>
+        <tr><td>2.0</td><td>other content</td><td>anatomy, descriptive findings</td></tr>
+        <tr><td>0.25</td><td>function words</td><td>the, and, of, with</td></tr>
+      </tbody>
+    </table>
+    <ul class="rules">
+      <li>A field the reference <em>changed</em> from the template weighs <strong>3×</strong> an
+        untouched one — the score concentrates on the sections the dictation touched.</li>
+      <li>A finding under the <strong>wrong label</strong> is penalised twice: missing where
+        expected, and extra where it isn't.</li>
+      <li>A <strong>dropped label</strong> scores the maximum for that field.</li>
+      <li><strong>Word order counts</strong> — matching the reference's phrasing matters, not
+        just its content.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="results">
+  <div class="wrap">
+    <h2>Results &amp; what's next</h2>
+    <p class="sub">Local 5-fold CV on the challenge scorer, and the public leaderboard.</p>
+    <div class="bars">
+      <div class="bar base"><span class="name">emit template unchanged</span><span class="barfill"><i style="width:100%"></i></span><span class="val">0.63</span></div>
+      <div class="bar"><span class="name">retrieval + few-shot, Qwen2.5-7B</span><span class="barfill"><i style="width:63%"></i></span><span class="val">0.40</span></div>
+      <div class="bar best"><span class="name">+ label fix + routing prompt, 14B</span><span class="barfill"><i style="width:52%"></i></span><span class="val">0.33</span></div>
+    </div>
+    <p style="margin-top:22px">The residual errors are mostly <strong>routing</strong> (a finding
+      placed in the wrong section) and <strong>omissions</strong>. Next steps that ran out of
+      runway: a verification pass that checks every weight-4 token and every dictated finding is
+      present; a QLoRA fine-tune on the training pairs; self-consistency over 3 samples. A
+      frontier model in place of the local 14B would likely close much of the gap to the leaders.</p>
+    <div class="note">The pipeline ran end-to-end on a free Kaggle T4 GPU at no cost. It's
+      provider-agnostic — <code>src/llm.py</code> also targets a hosted API.</div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Built by Divyansh Yadav. Cases on this page are synthetic and illustrative — the
+      challenge data is not redistributable and appears nowhere in this project. Not for
+      clinical use. MIT-licensed. &nbsp;·&nbsp; <a id="repo" href="#">source on GitHub</a></p>
+  </div>
+</footer>
+
+<script id="data" type="application/json">[{"id": "cxr-01", "modality": "XRAY", "body_part": "Chest", "study": "XR CHEST 2 VIEWS", "template": "FINDINGS:\nLUNGS: Lungs are clear. No focal air-space consolidation.\nPLEURAL SPACES: No pleural effusion or pneumothorax.\nHEART: Cardiac silhouette is within normal size limits.\nMEDIASTINUM/HILA: Cardiomediastinal silhouette is within normal limits.\nBONES: No acute osseous abnormality identified on this examination.\n\nIMPRESSION:\nNo acute abnormality.", "dictation": "no effusion or consolidation. mild thoracic spondylosis. cardiomegaly borderline", "reference": "FINDINGS:\nLUNGS: Lungs are clear. No focal air-space consolidation.\nPLEURAL SPACES: No pleural effusion or pneumothorax.\nHEART: The cardiac silhouette is borderline enlarged.\nMEDIASTINUM/HILA: Cardiomediastinal silhouette is within normal limits.\nBONES: Mild thoracic spondylosis is present. No acute osseous abnormality identified on this examination.\n\nIMPRESSION:\n1. Borderline cardiomegaly.\n2. Mild thoracic spondylosis.\n3. No acute cardiopulmonary abnormality.", "prediction": "FINDINGS:\nLUNGS: Lungs are clear. No focal air-space consolidation.\nPLEURAL SPACES: No pleural effusion or pneumothorax.\nHEART: The cardiac silhouette is borderline enlarged.\nMEDIASTINUM/HILA: Cardiomediastinal silhouette is within normal limits.\nBONES: Mild thoracic spondylosis is present. No acute osseous abnormality identified on this examination.\n\nIMPRESSION:\n1. Borderline cardiomegaly.\n2. Mild thoracic spondylosis.\n3. No acute cardiopulmonary abnormality.", "res": 0.0, "F": 0.0, "I": 0.0, "res_baseline": 0.4457, "fields": [{"label": "LUNGS", "weight": 1.0, "score": 0.0}, {"label": "PLEURAL SPACES", "weight": 1.0, "score": 0.0}, {"label": "HEART", "weight": 3.0, "score": 0.0}, {"label": "MEDIASTINUM/HILA", "weight": 1.0, "score": 0.0}, {"label": "BONES", "weight": 3.0, "score": 0.0}]}, {"id": "hip-01", "modality": "XRAY", "body_part": "Hip", "study": "XR RIGHT HIP 2 VIEWS", "template": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\nJOINTS: No dislocation. The joint spaces are normal.\nSOFT TISSUES: The soft tissues are unremarkable.\n\nIMPRESSION:\nNo acute osseous abnormality.", "dictation": "degen changes si joint rt side and rt hip. no fracture", "reference": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\n\nJOINTS: There are degenerative changes of the right hip and right sacroiliac joint. No dislocation.\n\nSOFT TISSUES: The soft tissues are unremarkable.\n\nIMPRESSION:\n1. Degenerative changes of the right hip and right sacroiliac joint.\n2. No acute osseous abnormality.", "prediction": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\nJOINTS: There are degenerative changes of the right hip and the right sacroiliac joint. No dislocation. The joint spaces are otherwise normal.\nSOFT TISSUES: The soft tissues are unremarkable.\n\nIMPRESSION:\n1. Degenerative changes of the right hip and right sacroiliac joint.\n2. No acute osseous abnormality.", "res": 0.1165, "F": 0.1792, "I": 0.0, "res_baseline": 0.6034, "fields": [{"label": "BONES", "weight": 1.0, "score": 0.0}, {"label": "JOINTS", "weight": 3.0, "score": 0.2986}, {"label": "SOFT TISSUES", "weight": 1.0, "score": 0.0}]}, {"id": "hip-02", "modality": "XRAY", "body_part": "Hip", "study": "XR LEFT HIP 2 VIEWS", "template": "FINDINGS:\nBones: No acute fracture or focal osseous lesion.\nHip Joints: Normal alignment with preserved joint spaces bilaterally.\nSacroiliac Joints & Pubic Symphysis: Unremarkable.\nSoft Tissues: No abnormality identified.\n\nIMPRESSION:\nNo acute abnormality.", "dictation": "left total hip arthroplasty in situ. exophytic bony changes along left iliac bone and prox left femur", "reference": "FINDINGS:\nBONES: Exophytic bony changes are noted along the left iliac bone and proximal left femur. No acute fracture or other focal osseous lesion is seen.\n\nHIP JOINTS: Left total hip arthroplasty prostheses are noted in situ. No dislocation is seen.\n\nSACROILIAC JOINTS & PUBIC SYMPHYSIS: Unremarkable.\n\nSOFT TISSUES: No abnormality identified.\n\nIMPRESSION:\n1. Left total hip arthroplasty in situ.\n2. Exophytic bony changes along the left iliac bone and proximal left femur.", "prediction": "FINDINGS:\nBONES: Exophytic bony changes are noted along the left iliac bone and proximal left femur. No acute fracture or focal osseous lesion.\nHIP JOINTS: Left total hip arthroplasty prostheses are noted in situ. No dislocation.\nSACROILIAC JOINTS & PUBIC SYMPHYSIS: Unremarkable.\nSOFT TISSUES: No abnormality identified.\n\nIMPRESSION:\n1. Left total hip arthroplasty in situ.\n2. Exophytic bony changes along the left iliac bone and proximal left femur.", "res": 0.0432, "F": 0.0665, "I": 0.0, "res_baseline": 0.7571, "fields": [{"label": "BONES", "weight": 3.0, "score": 0.0863}, {"label": "HIP JOINTS", "weight": 3.0, "score": 0.0909}, {"label": "SACROILIAC JOINTS & PUBIC SYMPHYSIS", "weight": 1.0, "score": 0.0}, {"label": "SOFT TISSUES", "weight": 1.0, "score": 0.0}]}, {"id": "lspine-01", "modality": "XRAY", "body_part": "Lumbar spine", "study": "XR LUMBAR SPINE 2 VIEWS", "template": "FINDINGS:\nVERTEBRAE: Normal density and alignment. No fracture or osseous lesion.\nDISC SPACES: Preserved.\nSOFT TISSUES: Unremarkable.\n\nIMPRESSION:\nNo acute abnormality evident in the [generic] spine.", "dictation": "mild lower lumbar facet degenerative changes. mild disc space narrowing L4-L5 and L5-S1", "reference": "FINDINGS:\nVERTEBRAE: Mild lower lumbar facet arthropathy is present. Normal vertebral body heights and alignment. No fracture or osseous lesion.\n\nDISC SPACES: There is mild disc space narrowing at L4-L5 and L5-S1.\n\nSOFT TISSUES: Unremarkable.\n\nIMPRESSION:\n1. Mild degenerative changes of the lower lumbar spine, most pronounced at L4-L5 and L5-S1.", "prediction": "FINDINGS:\nVERTEBRAE: Normal density and alignment. No fracture or osseous lesion.\nDISC SPACES: There is mild disc space narrowing at L4-L5 and L5-S1.\nSOFT TISSUES: Mild lower lumbar facet degenerative changes are present. Unremarkable soft tissues.\n\nIMPRESSION:\n1. Mild degenerative changes of the lower lumbar spine.\n2. No acute abnormality.", "res": 0.463, "F": 0.3554, "I": 0.6628, "res_baseline": 0.7821, "fields": [{"label": "VERTEBRAE", "weight": 3.0, "score": 0.551}, {"label": "DISC SPACES", "weight": 3.0, "score": 0.0}, {"label": "SOFT TISSUES", "weight": 1.0, "score": 0.8351}]}, {"id": "knee-01", "modality": "XRAY", "body_part": "Knee", "study": "XR RIGHT KNEE 3 VIEWS", "template": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\nJOINTS: No dislocation. The joint spaces are normal.\nSOFT TISSUES: No joint effusion. The soft tissues are unremarkable.\n\nIMPRESSION:\nNo acute osseous abnormality.", "dictation": "mod medial compartment jt space narrowing w/ osteophytes. small effusion. no fx", "reference": "FINDINGS:\nBONES: Marginal osteophytes are present. No acute fracture or focal osseous lesion.\n\nJOINTS: There is moderate medial compartment joint space narrowing. No dislocation.\n\nSOFT TISSUES: There is a small joint effusion. The soft tissues are otherwise unremarkable.\n\nIMPRESSION:\n1. Moderate medial compartment osteoarthrosis.\n2. Small joint effusion.", "prediction": "FINDINGS:\nBONES: Marginal osteophytes are noted. No acute fracture or focal osseous lesion.\nJOINTS: There is moderate medial compartment joint space narrowing. No dislocation.\nSOFT TISSUES: There is a small joint effusion. The soft tissues are otherwise unremarkable.\n\nIMPRESSION:\n1. Moderate medial compartment degenerative change with joint space narrowing and osteophytes.\n2. Small joint effusion.\n3. No acute fracture or dislocation.", "res": 0.2219, "F": 0.0296, "I": 0.5789, "res_baseline": 0.6836, "fields": [{"label": "BONES", "weight": 3.0, "score": 0.0889}, {"label": "JOINTS", "weight": 3.0, "score": 0.0}, {"label": "SOFT TISSUES", "weight": 3.0, "score": 0.0}]}, {"id": "ct-abd-01", "modality": "CT", "body_part": "Abdomen", "study": "CT ABDOMEN/PELVIS WITH CONTRAST", "template": "FINDINGS:\nLIVER: Normal in size and attenuation. No focal hepatic lesion.\nGALLBLADDER: Normal. No biliary ductal dilatation.\nPANCREAS: Normal in size and contour.\nKIDNEYS: Normal appearance without hydronephrosis.\nBOWEL: No evidence of bowel obstruction.\nPERITONEUM: No ascites. No pneumoperitoneum.\n\nIMPRESSION:\nNo acute intra-abdominal abnormality identified.", "dictation": "colonic diverticulosis. focal pericolonic fat stranding adjacent to sigmoid, c/w acute diverticulitis. no abscess or free air. gallbladder surgically absent", "reference": "FINDINGS:\nLIVER: Normal in size and attenuation. No focal hepatic lesion.\nGALLBLADDER: Surgically absent. No biliary ductal dilatation.\nPANCREAS: Normal in size and contour.\nKIDNEYS: Normal appearance without hydronephrosis.\nBOWEL: Colonic diverticulosis is present. There is focal pericolonic fat stranding adjacent to the sigmoid colon, consistent with acute diverticulitis. No adjacent abscess or extraluminal free air. No evidence of bowel obstruction.\nPERITONEUM: No ascites. No pneumoperitoneum.\n\nIMPRESSION:\n1. Acute sigmoid diverticulitis without abscess or perforation.\n2. Surgically absent gallbladder.", "prediction": "FINDINGS:\nLIVER: Normal in size and attenuation. No focal hepatic lesion.\nGALLBLADDER: The gallbladder is surgically absent. No biliary ductal dilatation.\nPANCREAS: Normal in size and contour.\nKIDNEYS: Normal appearance without hydronephrosis.\nBOWEL: There is colonic diverticulosis with focal pericolonic fat stranding adjacent to the sigmoid colon, consistent with acute diverticulitis. No abscess or free air is seen. No evidence of bowel obstruction.\nPERITONEUM: No ascites. No pneumoperitoneum.\n\nIMPRESSION:\n1. Acute sigmoid diverticulitis.\n2. Surgically absent gallbladder.\n3. No bowel obstruction.", "res": 0.2952, "F": 0.0933, "I": 0.6701, "res_baseline": 0.5811, "fields": [{"label": "LIVER", "weight": 1.0, "score": 0.0}, {"label": "GALLBLADDER", "weight": 3.0, "score": 0.1351}, {"label": "PANCREAS", "weight": 1.0, "score": 0.0}, {"label": "KIDNEYS", "weight": 1.0, "score": 0.0}, {"label": "BOWEL", "weight": 3.0, "score": 0.1759}, {"label": "PERITONEUM", "weight": 1.0, "score": 0.0}]}, {"id": "mri-shoulder-01", "modality": "MRI", "body_part": "Shoulder", "study": "MRI RIGHT SHOULDER WITHOUT CONTRAST", "template": "FINDINGS:\nSUPRASPINATUS: The tendon is intact with normal signal intensity.\nINFRASPINATUS: The tendon is intact with normal signal intensity.\nSUBSCAPULARIS: The tendon is intact with normal signal intensity.\nBICEPS: The tendon is normally located and intact.\nGLENOHUMERAL JOINT: No joint effusion. The labrum is intact.\nACROMIOCLAVICULAR JOINT: No significant degenerative change.\nBONES: No acute fracture or aggressive osseous lesion.\n\nIMPRESSION:\nNormal MRI of the [left/right] shoulder.", "dictation": "mod supraspinatus tendinosis w low-grade bursal-sided partial tear at footprint. small glenohumeral joint effusion. mod AC osteoarthrosis. rest intact", "reference": "FINDINGS:\nSUPRASPINATUS: There is moderate supraspinatus tendinosis with a low-grade bursal-sided partial-thickness tear at the footprint.\nINFRASPINATUS: The infraspinatus tendon is intact.\nSUBSCAPULARIS: The subscapularis tendon is intact.\nBICEPS: The tendon is normally located and intact.\nGLENOHUMERAL JOINT: There is a small glenohumeral joint effusion. The labrum is intact.\nACROMIOCLAVICULAR JOINT: There is moderate acromioclavicular osteoarthrosis.\nBONES: No acute fracture or aggressive osseous lesion.\n\nIMPRESSION:\n1. Moderate supraspinatus tendinosis with a low-grade bursal-sided partial-thickness tear. No full-thickness tear.\n2. Small glenohumeral joint effusion.\n3. Moderate acromioclavicular osteoarthrosis.", "prediction": "FINDINGS:\nSUPRASPINATUS: There is moderate supraspinatus tendinosis with low-grade bursal-sided partial-thickness tearing at the footprint. No full-thickness tear.\nINFRASPINATUS: The tendon is intact with normal signal intensity.\nSUBSCAPULARIS: The tendon is intact with normal signal intensity.\nBICEPS: The tendon is normally located and intact.\nGLENOHUMERAL JOINT: There is a small joint effusion. The labrum is intact. The articular cartilage is preserved.\nACROMIOCLAVICULAR JOINT: There is moderate acromioclavicular osteoarthrosis with capsular hypertrophy.\nBONES: No acute fracture or aggressive osseous lesion. Normal marrow signal.\n\nIMPRESSION:\n1. Moderate supraspinatus tendinosis with a low-grade bursal-sided partial-thickness tear.\n2. Small glenohumeral joint effusion.\n3. Moderate acromioclavicular osteoarthrosis.\n4. No full-thickness rotator cuff tear.", "res": 0.4488, "F": 0.4588, "I": 0.4301, "res_baseline": 0.7837, "fields": [{"label": "SUPRASPINATUS", "weight": 3.0, "score": 0.3761}, {"label": "INFRASPINATUS", "weight": 3.0, "score": 0.6949}, {"label": "SUBSCAPULARIS", "weight": 3.0, "score": 0.6949}, {"label": "BICEPS", "weight": 1.0, "score": 0.0}, {"label": "GLENOHUMERAL JOINT", "weight": 3.0, "score": 0.3908}, {"label": "ACROMIOCLAVICULAR JOINT", "weight": 3.0, "score": 0.3333}, {"label": "BONES", "weight": 1.0, "score": 0.3299}]}, {"id": "usg-dvt-01", "modality": "USG", "body_part": "Lower extremity veins", "study": "US LOWER EXTREMITY VENOUS DUPLEX, RIGHT", "template": "FINDINGS:\nDEEP VEINS: The common femoral, femoral, and popliteal veins are compressible with normal color and spectral Doppler flow.\nCALF VEINS: The visualized calf veins are patent.\nSOFT TISSUES: No popliteal fossa cyst.\n\nIMPRESSION:\nNo deep venous thrombosis in the [_laterality_] lower extremity.", "dictation": "acute occlusive thrombus in right popliteal and posterior tibial veins. cfv and fv patent", "reference": "FINDINGS:\nDEEP VEINS: The common femoral and femoral veins are compressible with normal flow. There is acute occlusive thrombus within the right popliteal vein.\nCALF VEINS: There is acute occlusive thrombus within the right posterior tibial veins. The remaining visualized calf veins are patent.\nSOFT TISSUES: No popliteal fossa cyst.\n\nIMPRESSION:\n1. Acute occlusive deep venous thrombosis of the right popliteal and posterior tibial veins.", "prediction": "FINDINGS:\nDEEP VEINS: The common femoral and femoral veins are compressible with normal flow. There is acute occlusive thrombus within the right popliteal vein.\nCALF VEINS: There is acute occlusive thrombus within the right posterior tibial veins. The remaining visualized calf veins are patent.\nSOFT TISSUES: No popliteal fossa cyst.\n\nIMPRESSION:\n1. Acute occlusive deep venous thrombosis of the right popliteal and posterior tibial veins.", "res": 0.0, "F": 0.0, "I": 0.0, "res_baseline": 0.6356, "fields": [{"label": "DEEP VEINS", "weight": 3.0, "score": 0.0}, {"label": "CALF VEINS", "weight": 3.0, "score": 0.0}, {"label": "SOFT TISSUES", "weight": 1.0, "score": 0.0}]}, {"id": "ct-head-01", "modality": "CT", "body_part": "Head", "study": "CT HEAD WITHOUT CONTRAST", "template": "FINDINGS:\nBRAIN: The brain parenchyma is normal in attenuation. No acute infarction or hemorrhage. No mass effect or midline shift.\nVENTRICLES: Normal in size and configuration.\nEXTRA-AXIAL SPACES: No extra-axial collection.\nBONES: No acute calvarial fracture.\n\nIMPRESSION:\nNo acute intracranial abnormality.", "dictation": "chronic encephalomalacia right parietal lobe from old infarct. mod periventricular white matter hypodensity - chronic small vessel ischemic change. age-appropriate volume loss. no acute", "reference": "FINDINGS:\nBRAIN: There is chronic encephalomalacia in the right parietal lobe, consistent with an old infarct. There are moderate periventricular white matter hypodensities, compatible with chronic small vessel ischemic change. Age-appropriate volume loss. No acute infarction or hemorrhage. No mass effect or midline shift.\nVENTRICLES: Normal in size and configuration.\nEXTRA-AXIAL SPACES: No extra-axial collection.\nBONES: No acute calvarial fracture.\n\nIMPRESSION:\n1. Chronic right parietal encephalomalacia from prior infarction.\n2. Moderate chronic small vessel ischemic change.\n3. No acute intracranial abnormality.", "prediction": "FINDINGS:\nBRAIN: There is chronic encephalomalacia in the right parietal lobe from an old infarct. There are moderate periventricular white matter hypodensities, compatible with chronic small vessel ischemic changes. There is age-appropriate volume loss. No acute infarction or hemorrhage. No mass effect or midline shift.\nVENTRICLES: Normal in size and configuration.\nEXTRA-AXIAL SPACES: No extra-axial collection.\nBONES: No acute calvarial fracture.\n\nIMPRESSION:\n1. Chronic right parietal encephalomalacia from prior infarction.\n2. Moderate chronic small vessel ischemic change.\n3. No acute intracranial abnormality.", "res": 0.0182, "F": 0.028, "I": 0.0, "res_baseline": 0.4816, "fields": [{"label": "BRAIN", "weight": 3.0, "score": 0.056}, {"label": "VENTRICLES", "weight": 1.0, "score": 0.0}, {"label": "EXTRA-AXIAL SPACES", "weight": 1.0, "score": 0.0}, {"label": "BONES", "weight": 1.0, "score": 0.0}]}, {"id": "foot-01", "modality": "XRAY", "body_part": "Foot", "study": "XR RIGHT FOOT 3 VIEWS", "template": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\nJOINTS: No dislocation. The joint spaces are normal.\nSOFT TISSUES: The soft tissues are unremarkable.\n\nIMPRESSION:\nNo acute osseous abnormality.", "dictation": "mild lateral swelling 5th digit at MTP joint. no fracture", "reference": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\n\nJOINTS: No dislocation. The joint spaces are normal.\n\nSOFT TISSUES: There is mild lateral soft tissue swelling of the fifth digit at the metatarsophalangeal joint. The remaining soft tissues are unremarkable.\n\nIMPRESSION:\n1. Mild soft tissue swelling of the fifth digit at the metatarsophalangeal joint.\n2. No acute osseous abnormality.", "prediction": "FINDINGS:\nBONES: No acute fracture or focal osseous lesion.\nJOINTS: There is mild lateral swelling of the fifth digit at the metatarsophalangeal joint. No dislocation. The joint spaces are normal.\nSOFT TISSUES: The soft tissues are unremarkable.\n\nIMPRESSION:\n1. Mild lateral swelling of the fifth digit at the metatarsophalangeal joint.\n2. No acute osseous abnormality.", "res": 0.4348, "F": 0.5647, "I": 0.1935, "res_baseline": 0.507, "fields": [{"label": "BONES", "weight": 1.0, "score": 0.0}, {"label": "JOINTS", "weight": 1.0, "score": 0.5735}, {"label": "SOFT TISSUES", "weight": 3.0, "score": 0.75}]}]</script>
+<script>
+const CASES = JSON.parse(document.getElementById('data').textContent);
+const $ = s => document.querySelector(s);
+
+function wordDiff(pred, ref){
+  const a = pred.toLowerCase().replace(/[^\w\s]/g,' ').split(/\s+/).filter(Boolean);
+  const b = ref.split(/\s+/);
+  const bl = b.map(w => w.toLowerCase().replace(/[^\w]/g,''));
+  const n=a.length, m=b.length;
+  const dp = Array.from({length:n+1},()=>new Int32Array(m+1));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
+    dp[i][j] = a[i]===bl[j] ? dp[i+1][j+1]+1 : Math.max(dp[i+1][j],dp[i][j+1]);
+  let i=0,j=0,out=[];
+  while(j<m){
+    if(i<n && a[i]===bl[j]){ out.push(['ok',b[j]]); i++; j++; }
+    else if(i<n && dp[i+1][j]>=dp[i][j+1]){ i++; }
+    else { out.push(['miss',b[j]]); j++; }
+  }
+  return out;
+}
+
+function render(c){
+  $('#meta').innerHTML =
+    `<span><b>${c.modality}</b> · ${c.body_part}</span><span>${c.study}</span><span>id ${c.id}</span>`;
+  $('#template').textContent = c.template;
+  $('#dictation').textContent = c.dictation;
+  $('#prediction').textContent = c.prediction;
+
+  $('#resval').textContent = c.res.toFixed(3);
+  $('#resfill').style.width = Math.min(c.res*100,100) + '%';
+  $('#b0mark').style.left = Math.min(c.res_baseline*100,100) + '%';
+  $('#fval').textContent = 'F ' + c.F.toFixed(2);
+  $('#ival').textContent = 'I ' + c.I.toFixed(2);
+  $('#bval').textContent = 'baseline ' + c.res_baseline.toFixed(2);
+
+  $('#diff').innerHTML = wordDiff(c.prediction, c.reference)
+    .map(([k,w]) => k==='ok' ? `<span class="ok">${w}</span>` : `<span class="miss">${w}</span>`)
+    .join(' ');
+
+  $('#fieldrows').innerHTML = c.fields.map(f => `
+    <tr>
+      <td class="lbl">${f.label.replace(/^__|__$/g,'').replace(/_/g,' ')}</td>
+      <td><span class="wpill ${f.weight>=3?'w3':''}">${f.weight}</span></td>
+      <td class="score-cell">${f.score.toFixed(3)}</td>
+    </tr>`).join('');
+}
+
+const picker = $('#picker');
+CASES.forEach((c,idx) => {
+  const b = document.createElement('button');
+  b.className = 'chip';
+  b.setAttribute('aria-pressed', idx===0);
+  b.innerHTML = `<span class="m">${c.modality}</span>${c.body_part}`;
+  b.onclick = () => {
+    picker.querySelectorAll('.chip').forEach(x=>x.setAttribute('aria-pressed','false'));
+    b.setAttribute('aria-pressed','true');
+    render(c);
+  };
+  picker.appendChild(b);
+});
+render(CASES[0]);
+
+// repo link — set after publishing to GitHub
+const REPO = "";
+if (REPO) $('#repo').href = REPO; else $('#repo').removeAttribute('href');
+</script>

@@ -1,0 +1,23 @@
+# ---- competition data: NOT redistributable (host rule) ----
+/data/
+/submissions/
+/experiments/
+/EVALUATION.md
+/assets/demo.build.html
+
+# secrets
+*.env
+.env
+kaggle.json
+**/kaggle.json
+*_key*
+secrets*
+
+# python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# scratch
+*.log
