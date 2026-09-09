@@ -9,7 +9,9 @@ pipeline, the local evaluation harness, and a write-up of the approach. **It con
 competition data** — the challenge data is not redistributable, so the demo and examples here
 are synthetic and hand-authored to match the task's structure.
 
-**▶ Interactive demo:** https://claude.ai/code/artifact/8b3b3b43-ca40-4209-b1a0-01306a532ec9
+**▶ Interactive demo:** `public/index.html` — a single self-contained page (case explorer,
+live RES scoring, word-diff against the reference). Deploy as a static site on Render with the
+included `render.yaml`, or open the file directly.
 
 ---
 
@@ -135,6 +137,9 @@ notebook/
 demo/
   app.py           Streamlit demo (synthetic cases; retrieval + scorer + post-processor run live)
   build_demo_data.py   authors the synthetic cases and scores them with the real metric
+  build_page.py    inlines the scored cases into public/index.html
+public/index.html  the static interactive demo (deployed via render.yaml)
+render.yaml        Render static-site blueprint
 PLAN.md            design notes — the metric analysis that drove the pipeline
 ```
 
@@ -143,13 +148,19 @@ PLAN.md            design notes — the metric analysis that drove the pipeline
 ```bash
 pip install -r requirements.txt
 
-# the local metric + a worked example
+# the local metric
 python -c "from src.res_score import score_case; print('scorer imports OK')"
 
-# the demo (synthetic data — no competition data required)
-python demo/build_demo_data.py
+# the static demo — just open it
+open public/index.html                       # or double-click
+
+# or the Streamlit demo (retrieval + scorer + post-processor run live)
+python demo/build_demo_data.py && python demo/build_page.py
 streamlit run demo/app.py
 ```
+
+**Deploy the static demo (Render):** New → Blueprint → pick this repo (reads `render.yaml`),
+or New → Static Site with build command empty and publish directory `public`.
 
 The Kaggle notebook (`notebook/rrh.ipynb`) needs the competition dataset attached and a GPU;
 see `notebook/KAGGLE.md`.

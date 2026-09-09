@@ -1,0 +1,18 @@
+# Render Blueprint — deploys the demo (public/index.html) as a static site.
+# render.com -> New -> Blueprint -> pick this repo.  Or: New -> Static Site,
+# Build Command: (leave empty)  ·  Publish Directory: public
+services:
+  - type: web
+    name: radiology-reporting-harness
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: ./public
+    pullRequestPreviewsEnabled: false
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
