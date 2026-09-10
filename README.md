@@ -9,9 +9,9 @@ pipeline, the local evaluation harness, and a write-up of the approach. **It con
 competition data** — the challenge data is not redistributable, so the demo and examples here
 are synthetic and hand-authored to match the task's structure.
 
-**▶ Interactive demo:** `public/index.html` — a single self-contained page (case explorer,
-live RES scoring, word-diff against the reference). Deploy as a static site on Render with the
-included `render.yaml`, or open the file directly.
+**▶ Interactive demo:** _Render static site — URL added after deploy._ &nbsp;
+The demo is a single self-contained page (`public/index.html`): case explorer, live RES
+scoring, word-diff against the reference.
 
 ---
 
