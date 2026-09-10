@@ -21,3 +21,6 @@ __pycache__/
 
 # scratch
 *.log
+
+# project write-up — kept local, not published
+/docs/
